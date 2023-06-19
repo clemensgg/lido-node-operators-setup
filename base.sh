@@ -16,13 +16,11 @@ export ANSIBLE_FORCE_COLOR="True"
 . /etc/os-release
 DATE=$(date +%T_%d-%m-%Y)
 LOG_FILE="installation.log"
-REPO_NAME="node-operators-setup"
+REPO_USER="clemensgg"
 CUSTOM_INVENTORY="variables"
 
 # SSH ENVs
 CURRENT_USERNAME=$(whoami)
-PRIVATE_KEY=~/.ssh/id_rsa
-PUB_KEY=~/.ssh/id_rsa.pub
 KNOWN_HOSTS=~/.ssh/known_hosts
 
 # SECRET ENVs
@@ -30,6 +28,11 @@ PREGEN_SECRETS="jwtsecret.hex"
 SECRETS_FILE="secret_variables"
 
 # Functions
+read_sudo_password() {
+  echo "Please enter the hosts sudo password:"
+  read -s SUDO_PW
+}
+
 check_os_version() {
   if [ ${ID} == "ubuntu" ]; then
     case ${VERSION_ID} in
@@ -46,31 +49,25 @@ check_os_version() {
   fi
 }
 
-# Preparing SSH connection
-check_local_ssh_key() {
-  if [ -f ${PRIVATE_KEY} ] && [ -f ${PUB_KEY} ]; then
-    echo -ne "${DATE} Public key -> ${PUB_KEY} <- exists\n"
-    echo -ne "\n"
-  elif [ -f ${PRIVATE_KEY} ]; then
-    echo -ne "${DATE} Generating public key from current private key\n"
-    echo -ne "\n"
-    ssh-keygen -f ${PRIVATE_KEY} -y >${PUB_KEY}
-  else
-    echo -ne "${DATE} Generating new private and public key\n"
-    echo -ne "\n"
-    ssh-keygen -b 4096 -t rsa -f ${PRIVATE_KEY} -q -N ""
-  fi
-}
-
 export_custom_envs() {
   export ETHEREUM_NODES_IP=${ETHEREUM_NODES_IP}
+  export ETHEREUM_NODES_SSH_PORT=${ETHEREUM_NODES_SSH_PORT}
+  export ETHEREUM_NODES_SSH_KEY=${ETHEREUM_NODES_SSH_KEY}
+  export ETHEREUM_NODES_SSH_USER=${ETHEREUM_NODES_SSH_USER}
   export VALIDATORS_EJECTOR_IP=${VALIDATORS_EJECTOR_IP}
+  export VALIDATORS_EJECTOR_SSH_PORT=${VALIDATORS_EJECTOR_SSH_PORT}
+  export VALIDATORS_EJECTOR_SSH_KEY=${VALIDATORS_EJECTOR_SSH_KEY}
+  export VALIDATORS_EJECTOR_SSH_USER=${VALIDATORS_EJECTOR_SSH_USER}
   export MONITORING_SERVER_IP=${MONITORING_SERVER_IP}
+  export MONITORING_SERVER_SSH_PORT=${MONITORING_SERVER_SSH_PORT}
+  export MONITORING_SERVER_SSH_KEY=${MONITORING_SERVER_SSH_KEY}
+  export MONITORING_SERVER_SSH_USER=${MONITORING_SERVER_SSH_USER}
   export VALIDATOR_EJECTOR_STAKING_MODULE_ID=${VALIDATOR_EJECTOR_STAKING_MODULE_ID}
   export VALIDATOR_EJECTOR_OPERATOR_ID=${VALIDATOR_EJECTOR_OPERATOR_ID}
   export VALIDATOR_EJECTOR_MESSAGES_PASSWORD=${VALIDATOR_EJECTOR_MESSAGES_PASSWORD}
   export TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
   export TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+  export SUDO_PW
 }
 
 export_pregen_secrets() {
@@ -84,9 +81,10 @@ export_secrets() {
 }
 
 add_host_keys_to_known_host() {
-  ssh-keyscan -t ssh-rsa ${ETHEREUM_NODES_IP} >>${KNOWN_HOSTS}
-  ssh-keyscan -t ssh-rsa ${VALIDATORS_EJECTOR_IP} >>${KNOWN_HOSTS}
-  ssh-keyscan -t ssh-rsa ${MONITORING_SERVER_IP} >>${KNOWN_HOSTS}
+  echo "${ETHEREUM_NODES_IP} ${VALIDATORS_EJECTOR_IP} ${MONITORING_SERVER_IP}"
+  ssh-keyscan -p ${ETHEREUM_NODES_SSH_PORT} -H ${ETHEREUM_NODES_IP} >>${KNOWN_HOSTS}
+  ssh-keyscan -p ${VALIDATORS_EJECTOR_SSH_PORT} -H ${VALIDATORS_EJECTOR_IP} >>${KNOWN_HOSTS}
+  ssh-keyscan -p ${MONITORING_SERVER_SSH_PORT} -H ${MONITORING_SERVER_IP} >>${KNOWN_HOSTS}
   sort ${KNOWN_HOSTS} | uniq >${KNOWN_HOSTS}.uniq
   mv ${KNOWN_HOSTS}{.uniq,}
 }
@@ -94,19 +92,21 @@ add_host_keys_to_known_host() {
 check_custom_inventory_existence() {
   if [ -f ${CUSTOM_INVENTORY} ]; then
     echo -ne "${DATE} File -> ${CUSTOM_INVENTORY} <- exists\n"
-    echo -ne "\n"
     source ${CUSTOM_INVENTORY}
+    echo "Exporting env vars"
     export_custom_envs
+    echo "Adding host keys to known_hosts"
     add_host_keys_to_known_host
   else
     echo -ne "${DATE} You have to provide -> ${CUSTOM_INVENTORY} <- file\n"
     echo -ne "\n"
     exit 2
   fi
+  echo -ne "\n"
 }
 
 check_gen_secret_variables() {
-  if [ -s ${SECRETS_FILE} ]; then
+  if [ -f ${SECRETS_FILE} ]; then
     echo -ne "${DATE} File -> ${SECRETS_FILE} <- exists\n"
     source ${SECRETS_FILE}
     if [ -z $ALERTS_BOX_GRAFANA_USER ]; then
@@ -124,6 +124,7 @@ check_gen_secret_variables() {
     echo "ALERTS_BOX_GRAFANA_USER, ALERTS_BOX_GRAFANA_PASSWORD, LIDO_KEYS_API_DB_PASSWORD exist and have value"
     echo -ne "\n"
   else
+    echo -ne "${DATE} Generating new secrets in $SECRETS_FILE"
     echo "ALERTS_BOX_GRAFANA_USER=operator-$(openssl rand -base64 5 | tr -d "=+/" | cut -c1-4)" >${SECRETS_FILE}
     echo "ALERTS_BOX_GRAFANA_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-29)" >>${SECRETS_FILE}
     echo "LIDO_KEYS_API_DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-29)" >>${SECRETS_FILE}
@@ -183,21 +184,19 @@ install_openssl() {
   fi
 }
 
-clone_repo() {
-  echo -ne "${DATE} Cloning repository with ansible roles\n"
-  echo -ne "\n"
-  if [ ! -d ${REPO_NAME} ]; then
-    # NOW WE HAVE TO AUTHENTICATE SINCE IT'S A PRIVATE REPO
-    git clone https://github.com/lidofinance/${REPO_NAME}
-  else
-    GIT_DIR=${REPO_NAME}/.git git pull origin main
-  fi
+add_ssh_keys() {
+  ssh-add ${ETHEREUM_NODES_SSH_KEY}
+  ssh-add ${VALIDATORS_EJECTOR_SSH_KEY}
+  ssh-add ${MONITORING_SERVER_SSH_KEY}
 }
 
 ansible_initial_run() {
+  pip uninstall ansible-base
+  pip install ansible-core
+  ansible-galaxy collection install community.docker
   set +e
-  if [ -f node-operators-setup/ansible/inventories/${ENVIRONMENT}.yml ]; then
-    ansible all -i node-operators-setup/ansible/inventories/${ENVIRONMENT}.yml -m ping
+  if [ -f ansible/inventories/${ENVIRONMENT}.yml ]; then
+    ansible all -i ansible/inventories/${ENVIRONMENT}.yml -m ping
   else
     echo "No inventory file for ${ENVIRONMENT} environment"
     exit 2
@@ -207,28 +206,18 @@ ansible_initial_run() {
     echo -ne "\n"
   else
     echo -ne "${DATE} SSH connection by Ansible isn't successful\n"
-    echo -ne "${DATE} Running Ansible to configure access by SSH\n"
-    echo -ne "\n"
-    if [ -f node-operators-setup/ansible/inventories/${ENVIRONMENT}.yml ]; then
-      ansible-playbook -i ${REPO_NAME}/ansible/inventories/${ENVIRONMENT}.yml --ask-pass \
-        ${REPO_NAME}/ansible/playbooks/configure_ssh_access.yml \
-        -e "my_username=${CURRENT_USERNAME}" \
-        -e "my_public_key=\"$(cat $PUB_KEY)\""
-    else
-      echo "No inventory file for ${ENVIRONMENT} environment"
-      exit 2
-    fi
+    exit 1
   fi
   set -e
 }
 
 ansible_run() {
   echo -ne "${DATE} Running Ansible with tag ${1}\n"
-  export ANSIBLE_ROLES_PATH=${REPO_NAME}/ansible/roles/
-  if [ -f node-operators-setup/ansible/inventories/${ENVIRONMENT}.yml ]; then
-    ansible-playbook -i ${REPO_NAME}/ansible/inventories/${ENVIRONMENT}.yml \
-      ${REPO_NAME}/ansible/playbooks/site.yml \
-      -t ${1}
+  export ANSIBLE_ROLES_PATH=ansible/roles/
+  if [ -f ansible/inventories/${ENVIRONMENT}.yml ]; then
+    ansible-playbook -i ansible/inventories/${ENVIRONMENT}.yml \
+    ansible/playbooks/site.yml \
+    -t ${1}
   else
     echo "No inventory file for ${ENVIRONMENT} environment"
     exit 2
@@ -236,16 +225,16 @@ ansible_run() {
 }
 
 main() {
+  read_sudo_password
   echo -ne "${DATE} Starting installation script\n"
   check_os_version
   check_gen_secret_variables
-  check_local_ssh_key
   check_custom_inventory_existence
   install_ansible
   install_git
   install_openssl
   check_pregen_secrets
-  clone_repo
+  add_ssh_keys
   ansible_initial_run
   ansible_run common
   ansible_run alerts-box

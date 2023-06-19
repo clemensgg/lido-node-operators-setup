@@ -1,4 +1,11 @@
 ---
+- name: Add user to docker group
+  become: yes
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+
 - name: make sure Docker compose directory is present
   become: true
   file:

@@ -3,6 +3,10 @@ ethereum_nodes:
   hosts:
     ethereum-nodes-1:
       ansible_host: "{{ lookup('env','ETHEREUM_NODES_IP') }}"
+      ansible_port: "{{ lookup('env','ETHEREUM_NODES_SSH_PORT') }}"
+      ansible_private_key_file: "{{ lookup('env','ETHEREUM_NODES_SSH_KEY') }}"
+      ansible_user: "{{ lookup('env','ETHEREUM_NODES_SSH_USER') }}"
+      ansible_become_password: "{{ lookup('env','SUDO_PW') }}"
       wireguard_address: "10.8.0.101/24"
   vars:
     lighthouse_node_metrics_port: 8008
@@ -17,11 +21,14 @@ validators_ejector:
   hosts:
     validators-ejector-1:
       ansible_host: "{{ lookup('env','VALIDATORS_EJECTOR_IP') }}"
+      ansible_port: "{{ lookup('env','VALIDATORS_EJECTOR_SSH_PORT') }}"
+      ansible_private_key_file: "{{ lookup('env','VALIDATORS_EJECTOR_SSH_KEY') }}"
+      ansible_user: "{{ lookup('env','VALIDATORS_EJECTOR_SSH_USER') }}"
+      ansible_become_password: "{{ lookup('env','SUDO_PW') }}"
       wireguard_address: "10.8.0.102/24"
   vars:
     # Node API Keys
     lido_keys_api_http_ext_port: 3000
-    lido_keys_api_chain_id: 5
     lido_keys_api_image_tag: "@sha256:db99dd3494301abd586a77692154a6eef62b6e07ef3e60e49a0e6f0f5495865a"
     lido_keys_api_db_password: "{{ lookup('env','LIDO_KEYS_API_DB_PASSWORD') }}"
     lido_keys_api_el_rpc_url_list:
@@ -58,6 +65,10 @@ monitoring_server:
   hosts:
     monitoring-node-1:
       ansible_host: "{{ lookup('env','MONITORING_SERVER_IP') }}"
+      ansible_port: "{{ lookup('env','MONITORING_SERVER_SSH_PORT') }}"
+      ansible_private_key_file: "{{ lookup('env','MONITORING_SERVER_SSH_KEY') }}"
+      ansible_user: "{{ lookup('env','MONITORING_SERVER_SSH_USER') }}"
+      ansible_become_password: "{{ lookup('env','SUDO_PW') }}"
       wireguard_address: "10.8.0.103/24"
   vars:
     alerts_box_grafana_user: "{{ lookup('env','ALERTS_BOX_GRAFANA_USER') }}"
